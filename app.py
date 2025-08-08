@@ -710,10 +710,11 @@ def render_sidebar():
                 <div class="model-tags">{tags_html}</div>
             </div>
             """, unsafe_allow_html=True)
-            
+
             # 选择按钮
+            button_text = "✓ 已选择" if is_selected else f"选择 {model['name']}"
             if st.button(
-                f"{'✓ 已选择' if is_selected else f'选择 {model[\"name\"]}'}",
+                button_text,
                 key=f"select_{model['id']}",
                 disabled=is_selected,
                 use_container_width=True
