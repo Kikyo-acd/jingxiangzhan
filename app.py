@@ -370,7 +370,7 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def initialize_session_state():
-    """初始化会话状态"""
+    """初始化会话状态并恢复本地数据"""
     defaults = {
         'chat_messages': [],
         'github_api_key': '',
@@ -379,12 +379,185 @@ def initialize_session_state():
         'models_loaded': False,
         'conversation_count': 0,
         'auto_save_enabled': True,
-        'data_restored': False
+        'data_restored': False,
+        'chat_sessions': {},
+        'current_session_id': None,
+        'session_counter': 0
     }
     
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+    
+    # 尝试从本地存储恢复数据
+    if not st.session_state.data_restored:
+        restore_from_local_storage()
+
+def try_restore_data():
+    """尝试从JavaScript恢复的数据中读取并应用到session_state"""
+    # 添加一个JavaScript检查器
+    st.markdown("""
+    <script>
+    function applyRestoredData() {
+        const hiddenInput = document.getElementById('restored-chat-data');
+        if (hiddenInput && hiddenInput.value) {
+            try {
+                const data = JSON.parse(hiddenInput.value);
+                console.log('📥 准备应用恢复的数据:', data);
+                
+                // 触发Streamlit重新运行以应用数据
+                window.streamlitRestoredData = data;
+                
+                // 创建一个事件通知Streamlit
+                const event = new CustomEvent('dataRestored', { detail: data });
+                window.dispatchEvent(event);
+                
+                return true;
+            } catch (error) {
+                console.error('❌ 应用恢复数据失败:', error);
+            }
+        }
+        return false;
+    }
+    
+    // 延迟执行，确保DOM完全加载
+    setTimeout(applyRestoredData, 1500);
+    </script>
+    """, unsafe_allow_html=True)
+
+def restore_from_local_storage():
+    """从本地存储恢复数据"""
+    st.session_state.data_restored = True
+    
+    # 添加JavaScript来恢复数据
+    st.markdown("""
+    <script>
+    function restoreChatData() {
+        try {
+            // 尝试恢复完整数据
+            const completeData = localStorage.getItem('ai_chat_complete_data');
+            if (completeData) {
+                const data = JSON.parse(completeData);
+                console.log('🔄 发现完整聊天数据:', data);
+                
+                // 将数据存储到一个全局变量供Streamlit读取
+                window.restoredChatData = {
+                    currentMessages: data.current_messages || [],
+                    currentSessionId: data.current_session_id || null,
+                    sessions: data.sessions || {},
+                    sessionCounter: data.session_counter || 0,
+                    apiKey: data.api_key || '',
+                    selectedModel: data.selected_model || 'gpt-4o-mini',
+                    conversationCount: data.conversation_count || 0,
+                    dataFound: true
+                };
+                
+                // 显示恢复信息
+                if (data.current_messages && data.current_messages.length > 0) {
+                    console.log(`✅ 恢复 ${data.current_messages.length} 条当前会话消息`);
+                }
+                if (data.sessions && Object.keys(data.sessions).length > 0) {
+                    console.log(`✅ 恢复 ${Object.keys(data.sessions).length} 个历史会话`);
+                }
+                
+                return true;
+            }
+            
+            // 如果没有完整数据，尝试恢复旧格式数据
+            const oldData = localStorage.getItem('ai_chat_data');
+            if (oldData) {
+                const data = JSON.parse(oldData);
+                console.log('🔄 发现旧版聊天数据:', data);
+                
+                window.restoredChatData = {
+                    currentMessages: data.messages || [],
+                    currentSessionId: null,
+                    sessions: {},
+                    sessionCounter: 0,
+                    apiKey: data.apiKey || '',
+                    selectedModel: data.selectedModel || 'gpt-4o-mini',
+                    conversationCount: data.conversationCount || 0,
+                    dataFound: true
+                };
+                
+                console.log(`✅ 恢复 ${data.messages ? data.messages.length : 0} 条消息`);
+                return true;
+            }
+            
+            console.log('ℹ️ 未找到本地聊天数据');
+            window.restoredChatData = { dataFound: false };
+            return false;
+            
+        } catch (error) {
+            console.error('❌ 恢复数据失败:', error);
+            window.restoredChatData = { dataFound: false };
+            return false;
+        }
+    }
+    
+    // 立即尝试恢复数据
+    restoreChatData();
+    
+    // 如果页面还在加载，等待加载完成后再次尝试
+    if (document.readyState !== 'complete') {
+        window.addEventListener('load', restoreChatData);
+    }
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # 等待JavaScript执行
+    time.sleep(0.5)
+    
+    # 通过JavaScript检查是否有数据需要恢复
+    restore_check = st.empty()
+    with restore_check:
+        st.markdown("""
+        <script>
+        setTimeout(() => {
+            if (window.restoredChatData && window.restoredChatData.dataFound) {
+                const data = window.restoredChatData;
+                
+                // 创建一个隐藏的input来传递数据给Streamlit
+                const hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.id = 'restored-chat-data';
+                hiddenInput.value = JSON.stringify(data);
+                document.body.appendChild(hiddenInput);
+                
+                // 显示恢复提示
+                const restoreDiv = document.createElement('div');
+                restoreDiv.style.cssText = `
+                    position: fixed; top: 20px; right: 20px; z-index: 9999;
+                    background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;
+                    padding: 1rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    font-family: Inter, sans-serif; font-size: 14px; max-width: 300px;
+                `;
+                
+                const messageCount = data.currentMessages ? data.currentMessages.length : 0;
+                const sessionCount = data.sessions ? Object.keys(data.sessions).length : 0;
+                
+                restoreDiv.innerHTML = `
+                    <div style="font-weight: 600; margin-bottom: 0.5rem;">🔄 发现本地聊天记录</div>
+                    <div>当前会话: ${messageCount} 条消息</div>
+                    <div>历史会话: ${sessionCount} 个</div>
+                    <div style="margin-top: 0.5rem; font-size: 12px; opacity: 0.8;">数据正在恢复中...</div>
+                `;
+                
+                document.body.appendChild(restoreDiv);
+                
+                // 3秒后移除提示
+                setTimeout(() => {
+                    if (restoreDiv.parentNode) {
+                        restoreDiv.parentNode.removeChild(restoreDiv);
+                    }
+                }, 3000);
+            }
+        }, 1000);
+        </script>
+        """, unsafe_allow_html=True)
+    
+    # 尝试读取恢复的数据
+    try_restore_data()
 
 def get_all_supported_models():
     """获取所有支持的AI模型"""
@@ -520,7 +693,7 @@ def save_chat_data():
         for session_id, session_info in st.session_state.get('chat_sessions', {}).items():
             sessions_data[session_id] = {
                 'messages': session_info['messages'],
-                'created_time': session_info['created_time'].isoformat(),
+                'created_time': session_info['created_time'].isoformat() if hasattr(session_info['created_time'], 'isoformat') else str(session_info['created_time']),
                 'message_count': session_info['message_count'],
                 'title': session_info['title']
             }
@@ -533,15 +706,19 @@ def save_chat_data():
             'session_counter': st.session_state.get('session_counter', 0),
             'api_key': st.session_state.github_api_key,
             'selected_model': st.session_state.selected_model,
-            'conversation_count': st.session_state.conversation_count
+            'conversation_count': st.session_state.conversation_count,
+            'save_timestamp': time.time()
         }
         
         # 执行JavaScript保存
         st.markdown(f"""
         <script>
-        if (window.autoSaveChatData) {{
-            localStorage.setItem('ai_chat_complete_data', JSON.stringify({json.dumps(complete_data)}));
-            console.log("💾 完整会话数据已保存");
+        try {{
+            const data = {json.dumps(complete_data)};
+            localStorage.setItem('ai_chat_complete_data', JSON.stringify(data));
+            console.log("💾 完整会话数据已保存 - 消息数:", data.current_messages.length);
+        }} catch (error) {{
+            console.error("❌ 保存失败:", error);
         }}
         </script>
         """, unsafe_allow_html=True)
@@ -1125,6 +1302,160 @@ def process_chat_message(user_message):
     else:
         st.error(f"❌ {current_model_name} 生成失败")
 
+def apply_restored_data_if_available():
+    """检查并应用JavaScript恢复的数据"""
+    # 使用st.query_params或其他方式检查是否有数据需要恢复
+    # 这里我们添加一个检查机制
+    
+    if 'restore_attempted' not in st.session_state:
+        st.session_state.restore_attempted = True
+        
+        # 添加检查脚本
+        data_check = st.empty()
+        with data_check:
+            st.markdown("""
+            <script>
+            setTimeout(() => {
+                if (window.streamlitRestoredData) {
+                    const data = window.streamlitRestoredData;
+                    console.log('🔧 开始应用恢复的数据...');
+                    
+                    // 将数据写入到一个特殊的DOM元素中供Streamlit读取
+                    let dataContainer = document.getElementById('streamlit-restored-data');
+                    if (!dataContainer) {
+                        dataContainer = document.createElement('div');
+                        dataContainer.id = 'streamlit-restored-data';
+                        dataContainer.style.display = 'none';
+                        document.body.appendChild(dataContainer);
+                    }
+                    
+                    dataContainer.textContent = JSON.stringify(data);
+                    
+                    // 设置一个标志表示数据已准备好
+                    window.dataReadyForStreamlit = true;
+                    
+                    console.log('✅ 数据已准备好供Streamlit读取');
+                }
+            }, 2000);
+            </script>
+            """, unsafe_allow_html=True)
+        
+        # 等待数据准备
+        time.sleep(2.5)
+        data_check.empty()
+        
+        # 尝试通过components读取数据（如果可能的话）
+        try:
+            # 这里可以添加实际的数据读取逻辑
+            # 由于Streamlit限制，我们使用一个变通方法
+            restore_data_from_storage()
+        except Exception as e:
+            st.error(f"数据恢复过程中出现错误: {e}")
+
+def restore_data_from_storage():
+    """从存储中恢复数据的变通方法"""
+    # 创建一个用户可操作的恢复界面
+    if st.session_state.get('show_restore_interface', False):
+        return
+    
+    # 检查是否有本地数据
+    st.markdown("""
+    <script>
+    setTimeout(() => {
+        const completeData = localStorage.getItem('ai_chat_complete_data');
+        const oldData = localStorage.getItem('ai_chat_data');
+        
+        if (completeData || oldData) {
+            // 显示恢复按钮
+            let restoreButton = document.getElementById('manual-restore-button');
+            if (!restoreButton) {
+                restoreButton = document.createElement('button');
+                restoreButton.id = 'manual-restore-button';
+                restoreButton.innerHTML = '🔄 点击恢复聊天记录';
+                restoreButton.style.cssText = `
+                    position: fixed; top: 80px; right: 20px; z-index: 9999;
+                    background: #3b82f6; color: white; border: none;
+                    padding: 0.75rem 1rem; border-radius: 8px;
+                    font-family: Inter, sans-serif; font-weight: 600;
+                    cursor: pointer; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+                `;
+                
+                restoreButton.onclick = function() {
+                    try {
+                        const data = completeData ? JSON.parse(completeData) : JSON.parse(oldData);
+                        
+                        // 手动恢复数据到sessionStorage供Streamlit读取
+                        sessionStorage.setItem('manual_restore_data', JSON.stringify(data));
+                        
+                        // 提示用户刷新页面
+                        alert('数据已准备好！请刷新页面完成恢复。');
+                        
+                        // 自动刷新页面
+                        window.location.reload();
+                        
+                    } catch (error) {
+                        alert('恢复失败: ' + error.message);
+                    }
+                };
+                
+                document.body.appendChild(restoreButton);
+                
+                // 5秒后自动隐藏按钮
+                setTimeout(() => {
+                    if (restoreButton.parentNode) {
+                        restoreButton.style.opacity = '0.7';
+                    }
+                }, 5000);
+            }
+        }
+    }, 1000);
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # 检查是否有手动恢复的数据
+    st.markdown("""
+    <script>
+    const manualData = sessionStorage.getItem('manual_restore_data');
+    if (manualData) {
+        try {
+            const data = JSON.parse(manualData);
+            console.log('📦 发现手动恢复数据:', data);
+            
+            // 将数据存储到全局变量
+            window.manualRestoreData = data;
+            
+            // 清除sessionStorage中的数据
+            sessionStorage.removeItem('manual_restore_data');
+            
+            // 通知用户恢复成功
+            const successDiv = document.createElement('div');
+            successDiv.style.cssText = `
+                position: fixed; top: 20px; right: 20px; z-index: 9999;
+                background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;
+                padding: 1rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                font-family: Inter, sans-serif; font-size: 14px;
+            `;
+            successDiv.innerHTML = `
+                <div style="font-weight: 600;">✅ 聊天记录恢复成功！</div>
+                <div style="font-size: 12px; margin-top: 0.5rem;">
+                    恢复了 ${data.current_messages ? data.current_messages.length : 0} 条消息
+                </div>
+            `;
+            document.body.appendChild(successDiv);
+            
+            setTimeout(() => {
+                if (successDiv.parentNode) {
+                    successDiv.parentNode.removeChild(successDiv);
+                }
+            }, 3000);
+            
+        } catch (error) {
+            console.error('❌ 手动恢复失败:', error);
+        }
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
 def main():
     """主程序"""
     # 应用样式
@@ -1132,6 +1463,9 @@ def main():
     
     # 初始化
     initialize_session_state()
+    
+    # 检查并应用恢复的数据
+    apply_restored_data_if_available()
     
     # 渲染界面
     render_sidebar()
