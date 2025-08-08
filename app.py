@@ -214,24 +214,6 @@ def render_sidebar():
         # GitHub API Token 配置
         st.markdown("### 🔑 API Token")
         
-        # API Token 帮助信息
-        with st.expander("📖 如何获取 GitHub API Token", expanded=False):
-            st.markdown("""
-            **获取步骤：**
-            1. 登录 GitHub，进入 Settings
-            2. 点击左侧 "Developer settings"
-            3. 选择 "Personal access tokens" > "Tokens (classic)"
-            4. 点击 "Generate new token" > "Generate new token (classic)"
-            5. 设置 Token 名称和过期时间
-            6. 选择权限范围：
-               - `public_repo` - 访问公开仓库
-               - `user` - 访问用户信息
-               - `repo` - 访问私有仓库（可选）
-            7. 点击 "Generate token" 并复制保存
-            
-            **Token 格式：** `ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
-            """)
-        
         # Token 输入
         github_token = st.text_input(
             "GitHub API Token",
