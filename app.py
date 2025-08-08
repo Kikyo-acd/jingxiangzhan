@@ -1240,6 +1240,289 @@ def process_chat_message(user_message):
     else:
         st.error(f"❌ {current_model_name} 生成失败")
 
+
+
+def show_restore_interface():
+    """显示数据恢复界面"""
+    # 创建一个简单的检查界面
+    st.markdown("""
+    <script>
+    // 检查本地存储并显示按钮
+    (function() {
+        try {
+            const completeData = localStorage.getItem('ai_chat_complete_data');
+            const oldData = localStorage.getItem('ai_chat_data');
+            
+            let messageCount = 0;
+            let hasData = false;
+            
+            if (completeData) {
+                const data = JSON.parse(completeData);
+                messageCount = data.current_messages ? data.current_messages.length : 0;
+                hasData = true;
+                console.log('发现完整数据:', messageCount, '条消息');
+            } else if (oldData) {
+                const data = JSON.parse(oldData);
+                messageCount = data.messages ? data.messages.length : 0;
+                hasData = true;
+                console.log('发现旧数据:', messageCount, '条消息');
+            }
+            
+            if (hasData && messageCount > 0) {
+                // 创建恢复界面
+                const restoreContainer = document.createElement('div');
+                restoreContainer.id = 'restore-container';
+                restoreContainer.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.5);
+                    z-index: 10000;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    font-family: 'Inter', sans-serif;
+                `;
+                
+                restoreContainer.innerHTML = `
+                    <div style="
+                        background: white;
+                        border-radius: 16px;
+                        padding: 2rem;
+                        max-width: 400px;
+                        width: 90%;
+                        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                        text-align: center;
+                        position: relative;
+                        animation: modalSlideIn 0.3s ease-out;
+                    ">
+                        <div style="
+                            font-size: 3rem;
+                            margin-bottom: 1rem;
+                        ">📚</div>
+                        
+                        <h2 style="
+                            color: #1e293b;
+                            margin-bottom: 0.5rem;
+                            font-size: 1.5rem;
+                            font-weight: 700;
+                        ">发现聊天记录</h2>
+                        
+                        <p style="
+                            color: #64748b;
+                            margin-bottom: 2rem;
+                            line-height: 1.5;
+                            font-size: 1rem;
+                        ">
+                            检测到本地保存的 <strong style="color: #3b82f6;">${messageCount}</strong> 条聊天记录<br>
+                            是否要恢复这些记录？
+                        </p>
+                        
+                        <div style="
+                            display: flex;
+                            gap: 1rem;
+                            justify-content: center;
+                        ">
+                            <button id="restore-yes-btn" style="
+                                background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+                                color: white;
+                                border: none;
+                                padding: 0.75rem 1.5rem;
+                                border-radius: 8px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                                min-width: 120px;
+                                font-size: 1rem;
+                            ">✅ 恢复记录</button>
+                            
+                            <button id="restore-no-btn" style="
+                                background: #6b7280;
+                                color: white;
+                                border: none;
+                                padding: 0.75rem 1.5rem;
+                                border-radius: 8px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                                min-width: 120px;
+                                font-size: 1rem;
+                            ">🗑️ 重新开始</button>
+                        </div>
+                        
+                        <p style="
+                            color: #94a3b8;
+                            font-size: 0.8rem;
+                            margin-top: 1rem;
+                            margin-bottom: 0;
+                        ">点击 "重新开始" 将清空所有本地数据</p>
+                    </div>
+                `;
+                
+                // 添加动画CSS
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes modalSlideIn {
+                        from {
+                            opacity: 0;
+                            transform: scale(0.9) translateY(-20px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: scale(1) translateY(0);
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+                
+                document.body.appendChild(restoreContainer);
+                
+                // 恢复按钮事件
+                document.getElementById('restore-yes-btn').onclick = function() {
+                    try {
+                        const dataToRestore = completeData || oldData;
+                        
+                        // 显示加载状态
+                        restoreContainer.innerHTML = `
+                            <div style="
+                                background: white;
+                                border-radius: 16px;
+                                padding: 2rem;
+                                text-align: center;
+                                color: #22c55e;
+                                font-weight: 600;
+                                font-size: 1.1rem;
+                            ">
+                                <div style="font-size: 2rem; margin-bottom: 1rem;">🔄</div>
+                                正在恢复聊天记录...
+                            </div>
+                        `;
+                        
+                        // 保存到sessionStorage供页面重载后使用
+                        sessionStorage.setItem('restore_chat_data', dataToRestore);
+                        
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                        
+                    } catch (error) {
+                        alert('恢复失败: ' + error.message);
+                        restoreContainer.remove();
+                    }
+                };
+                
+                // 重新开始按钮事件
+                document.getElementById('restore-no-btn').onclick = function() {
+                    if (confirm('确认要清空所有本地聊天记录吗？此操作不可撤销。')) {
+                        localStorage.removeItem('ai_chat_complete_data');
+                        localStorage.removeItem('ai_chat_data');
+                        
+                        // 显示清空成功
+                        restoreContainer.innerHTML = `
+                            <div style="
+                                background: white;
+                                border-radius: 16px;
+                                padding: 2rem;
+                                text-align: center;
+                                color: #ef4444;
+                                font-weight: 600;
+                                font-size: 1.1rem;
+                            ">
+                                <div style="font-size: 2rem; margin-bottom: 1rem;">🗑️</div>
+                                本地数据已清空，正在刷新...
+                            </div>
+                        `;
+                        
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    }
+                };
+                
+                // 点击背景关闭
+                restoreContainer.onclick = function(e) {
+                    if (e.target === restoreContainer) {
+                        restoreContainer.remove();
+                    }
+                };
+                
+            } else {
+                console.log('没有发现本地聊天数据');
+            }
+            
+        } catch (error) {
+            console.error('检查本地数据失败:', error);
+        }
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+
+def apply_restored_data_simple():
+    """简单的数据恢复应用"""
+    st.markdown("""
+    <script>
+    // 检查是否有需要恢复的数据
+    const restoreData = sessionStorage.getItem('restore_chat_data');
+    if (restoreData) {
+        try {
+            const data = JSON.parse(restoreData);
+            console.log('准备恢复数据:', data);
+            
+            // 清除标记
+            sessionStorage.removeItem('restore_chat_data');
+            
+            // 显示成功提示
+            const successDiv = document.createElement('div');
+            successDiv.style.cssText = `
+                position: fixed; top: 20px; right: 20px; z-index: 9999;
+                background: #f0fdf4; border: 2px solid #22c55e; color: #166534;
+                padding: 1rem 1.5rem; border-radius: 8px; 
+                box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2);
+                font-family: Inter, sans-serif; font-weight: 600;
+                animation: slideInRight 0.3s ease-out;
+            `;
+            
+            const messageCount = data.current_messages ? data.current_messages.length : 
+                               (data.messages ? data.messages.length : 0);
+            
+            successDiv.innerHTML = `
+                ✅ 成功恢复 ${messageCount} 条聊天记录！
+            `;
+            
+            document.body.appendChild(successDiv);
+            
+            // 3秒后移除
+            setTimeout(() => {
+                if (successDiv.parentNode) {
+                    successDiv.style.animation = 'slideOutRight 0.3s ease-in forwards';
+                    setTimeout(() => successDiv.remove(), 300);
+                }
+            }, 3000);
+            
+            // 添加滑动动画
+            const animStyle = document.createElement('style');
+            animStyle.textContent = `
+                @keyframes slideInRight {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+                @keyframes slideOutRight {
+                    from { transform: translateX(0); opacity: 1; }
+                    to { transform: translateX(100%); opacity: 0; }
+                }
+            `;
+            document.head.appendChild(animStyle);
+            
+        } catch (error) {
+            console.error('恢复数据失败:', error);
+        }
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
+# 修改 main() 函数
 def main():
     """主程序"""
     # 应用样式
@@ -1248,11 +1531,11 @@ def main():
     # 初始化
     initialize_session_state()
     
-    # 检查保存的数据
-    check_for_saved_data()
+    # 显示恢复界面（如果有数据）
+    show_restore_interface()
     
     # 应用恢复的数据
-    apply_restored_data()
+    apply_restored_data_simple()
     
     # 渲染界面
     render_sidebar()
