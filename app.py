@@ -503,9 +503,9 @@ def test_model_availability(api_key, model_id):
         return False
 
 def save_chat_data():
-    """保存聊天数据到本地存储"""
+    """保存聊天数据到本地存储，包括会话管理"""
     if st.session_state.get('auto_save_enabled', True):
-        # 准备数据
+        # 准备当前会话数据
         messages_data = []
         for msg in st.session_state.chat_messages:
             messages_data.append({
@@ -515,19 +515,33 @@ def save_chat_data():
                 'model': msg.get('model', 'unknown')
             })
         
+        # 准备会话管理数据
+        sessions_data = {}
+        for session_id, session_info in st.session_state.get('chat_sessions', {}).items():
+            sessions_data[session_id] = {
+                'messages': session_info['messages'],
+                'created_time': session_info['created_time'].isoformat(),
+                'message_count': session_info['message_count'],
+                'title': session_info['title']
+            }
+        
+        # 保存完整数据
+        complete_data = {
+            'current_messages': messages_data,
+            'current_session_id': st.session_state.get('current_session_id'),
+            'sessions': sessions_data,
+            'session_counter': st.session_state.get('session_counter', 0),
+            'api_key': st.session_state.github_api_key,
+            'selected_model': st.session_state.selected_model,
+            'conversation_count': st.session_state.conversation_count
+        }
+        
         # 执行JavaScript保存
         st.markdown(f"""
         <script>
         if (window.autoSaveChatData) {{
-            const success = window.autoSaveChatData(
-                {json.dumps(messages_data)},
-                "{st.session_state.github_api_key}",
-                "{st.session_state.selected_model}",
-                {st.session_state.conversation_count}
-            );
-            if (success) {{
-                console.log("💾 自动保存成功");
-            }}
+            localStorage.setItem('ai_chat_complete_data', JSON.stringify({json.dumps(complete_data)}));
+            console.log("💾 完整会话数据已保存");
         }}
         </script>
         """, unsafe_allow_html=True)
@@ -790,7 +804,7 @@ def render_sidebar():
         st.markdown(f"时间：2025-08-08 09:57:08")
 
 def render_main_content():
-    """渲染主要内容区域"""
+    """渲染主要内容区域 - 三栏布局"""
     # 页面标题
     st.markdown("""
     <div class="main-title">🤖 AI智能对话平台</div>
@@ -800,6 +814,19 @@ def render_main_content():
     # 恢复数据提示
     restore_chat_data()
     
+    # 创建三栏布局：主要内容 + 聊天记录选择栏
+    main_col, chat_history_col = st.columns([3, 1])
+    
+    with main_col:
+        # 原有的主要内容（聊天历史显示 + 输入区域）
+        render_main_chat_area()
+    
+    with chat_history_col:
+        # 新增的聊天记录选择栏
+        render_chat_history_panel()
+
+def render_main_chat_area():
+    """渲染主要聊天区域"""
     # 聊天历史显示
     if st.session_state.chat_messages:
         st.markdown("### 💬 对话记录")
@@ -876,6 +903,173 @@ def render_main_content():
         if st.button("🔄 刷新模型", use_container_width=True):
             st.session_state.models_loaded = False
             st.rerun()
+
+def render_chat_history_panel():
+    """渲染聊天记录选择面板"""
+    st.markdown("### 📚 聊天记录")
+    
+    # 初始化聊天会话管理
+    if 'chat_sessions' not in st.session_state:
+        st.session_state.chat_sessions = {}
+    if 'current_session_id' not in st.session_state:
+        st.session_state.current_session_id = None
+    if 'session_counter' not in st.session_state:
+        st.session_state.session_counter = 0
+    
+    # 新建会话按钮
+    if st.button("➕ 新建对话", use_container_width=True, type="primary"):
+        # 保存当前会话
+        if st.session_state.current_session_id and st.session_state.chat_messages:
+            st.session_state.chat_sessions[st.session_state.current_session_id] = {
+                'messages': st.session_state.chat_messages.copy(),
+                'created_time': datetime.now(),
+                'message_count': len(st.session_state.chat_messages),
+                'title': get_session_title(st.session_state.chat_messages)
+            }
+        
+        # 创建新会话
+        st.session_state.session_counter += 1
+        new_session_id = f"session_{st.session_state.session_counter}_{int(time.time())}"
+        st.session_state.current_session_id = new_session_id
+        st.session_state.chat_messages = []
+        st.session_state.conversation_count = 0
+        save_chat_data()
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # 显示会话列表
+    if st.session_state.chat_sessions:
+        st.markdown("**历史会话：**")
+        
+        # 按创建时间排序显示会话
+        sorted_sessions = sorted(
+            st.session_state.chat_sessions.items(),
+            key=lambda x: x[1]['created_time'],
+            reverse=True
+        )
+        
+        for session_id, session_data in sorted_sessions:
+            is_current = session_id == st.session_state.current_session_id
+            
+            # 会话信息
+            created_time = session_data['created_time'].strftime("%m-%d %H:%M")
+            message_count = session_data['message_count']
+            title = session_data['title']
+            
+            # 会话卡片样式
+            card_style = "border: 2px solid #3b82f6; background: #eff6ff;" if is_current else "border: 1px solid #e2e8f0;"
+            
+            st.markdown(f"""
+            <div style="padding: 0.75rem; margin: 0.5rem 0; border-radius: 8px; {card_style}">
+                <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.25rem;">
+                    {'🟢 ' if is_current else ''}📄 {title}
+                </div>
+                <div style="font-size: 0.8rem; color: #64748b;">
+                    {created_time} • {message_count} 条消息
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                if not is_current:
+                    if st.button(f"切换", key=f"switch_{session_id}", use_container_width=True):
+                        # 保存当前会话
+                        if st.session_state.current_session_id and st.session_state.chat_messages:
+                            st.session_state.chat_sessions[st.session_state.current_session_id] = {
+                                'messages': st.session_state.chat_messages.copy(),
+                                'created_time': st.session_state.chat_sessions.get(st.session_state.current_session_id, {}).get('created_time', datetime.now()),
+                                'message_count': len(st.session_state.chat_messages),
+                                'title': get_session_title(st.session_state.chat_messages)
+                            }
+                        
+                        # 切换到选择的会话
+                        st.session_state.current_session_id = session_id
+                        st.session_state.chat_messages = session_data['messages'].copy()
+                        st.session_state.conversation_count = len([m for m in session_data['messages'] if m['role'] == 'user'])
+                        save_chat_data()
+                        st.rerun()
+                else:
+                    st.markdown("**当前**")
+            
+            with col2:
+                # 导出单个会话
+                export_data = {
+                    'session_id': session_id,
+                    'title': title,
+                    'created_time': created_time,
+                    'messages': session_data['messages']
+                }
+                st.download_button(
+                    "📤",
+                    json.dumps(export_data, ensure_ascii=False, indent=2),
+                    file_name=f"chat_session_{created_time.replace(':', '-')}.json",
+                    mime="application/json",
+                    key=f"export_{session_id}",
+                    help="导出此会话"
+                )
+            
+            with col3:
+                if st.button("🗑️", key=f"delete_{session_id}", help="删除此会话"):
+                    del st.session_state.chat_sessions[session_id]
+                    if session_id == st.session_state.current_session_id:
+                        st.session_state.current_session_id = None
+                        st.session_state.chat_messages = []
+                        st.session_state.conversation_count = 0
+                    save_chat_data()
+                    st.rerun()
+    
+    else:
+        st.info("暂无历史会话")
+    
+    st.markdown("---")
+    
+    # 批量操作
+    if st.session_state.chat_sessions:
+        st.markdown("**批量操作：**")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📤 导出全部", use_container_width=True):
+                all_sessions_data = {
+                    'export_time': datetime.now().isoformat(),
+                    'user': 'Kikyo-acd',
+                    'session_count': len(st.session_state.chat_sessions),
+                    'sessions': st.session_state.chat_sessions
+                }
+                st.download_button(
+                    "下载全部会话",
+                    json.dumps(all_sessions_data, ensure_ascii=False, indent=2),
+                    file_name=f"all_chat_sessions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+        
+        with col2:
+            if st.button("🗑️ 清空全部", use_container_width=True):
+                if st.checkbox("确认清空所有会话", key="confirm_clear_all"):
+                    st.session_state.chat_sessions = {}
+                    st.session_state.current_session_id = None
+                    st.session_state.chat_messages = []
+                    st.session_state.conversation_count = 0
+                    save_chat_data()
+                    st.rerun()
+
+def get_session_title(messages):
+    """根据聊天消息生成会话标题"""
+    if not messages:
+        return "新对话"
+    
+    # 取第一条用户消息作为标题
+    for msg in messages:
+        if msg['role'] == 'user':
+            content = msg['content']
+            if len(content) > 20:
+                return content[:20] + "..."
+            return content
+    
+    return f"对话 - {datetime.now().strftime('%H:%M')}"
 
 def process_chat_message(user_message):
     """处理聊天消息"""
