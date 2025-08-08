@@ -463,12 +463,6 @@ def try_restore_from_storage():
     # 检查恢复按钮
     show_restore_button()
 
-Copilot said: 我发现问题了！代码中的数据恢复逻辑过于复杂，而且有很多无效的JavaScript代码。让我给您一个简化且有效的解决方案。 请将以下代码替换到您的文件中，主要修改 `initialize_session_state()` 和 `save_chat_data()` 函数： ```python def initialize_session_state():
-我发现问题了！代码中的数据恢复逻辑过于复杂，而且有很多无效的JavaScript代码。让我给您一个简化且有效的解决方案。
-
-请将以下代码替换到您的文件中，主要修改 initialize_session_state() 和 save_chat_data() 函数：
-
-Python
 def initialize_session_state():
     """初始化会话状态并恢复本地数据"""
     defaults = {
