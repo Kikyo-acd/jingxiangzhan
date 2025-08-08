@@ -9,6 +9,10 @@ from datetime import datetime
 import tiktoken
 import os
 from typing import List, Dict, Optional
+import streamlit as st
+import requests
+import json
+import time
 
 # 页面配置
 st.set_page_config(
@@ -175,6 +179,279 @@ def initialize_session_state():
             'frequency_penalty': 0.0,
             'presence_penalty': 0.0
         }
+
+def call_github_models_api(user_message, system_prompt, api_key):
+    """调用GitHub Models API进行对话 - 修正版本"""
+    
+    # GitHub Models API的正确端点
+    url = "https://models.inference.ai.azure.com/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "Chinese-Medicine-App/1.0"
+    }
+
+    # 构建对话消息
+    messages = [
+        {"role": "system", "content": system_prompt}
+    ]
+    
+    # 添加聊天历史上下文（最近3轮对话）
+    if len(st.session_state.chat_messages) > 0:
+        recent_messages = st.session_state.chat_messages[-6:]  # 最近3轮对话
+        for msg in recent_messages:
+            messages.append({
+                "role": msg['role'],
+                "content": msg['content']
+            })
+    
+    # 添加当前用户消息
+    messages.append({"role": "user", "content": user_message})
+
+    payload = {
+        "messages": messages,
+        "model": "gpt-4o-mini",  # GitHub Models支持的模型
+        "max_tokens": 1500,
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "frequency_penalty": 0,
+        "presence_penalty": 0
+    }
+
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        # 详细的错误处理
+        if response.status_code == 200:
+            result = response.json()
+            if 'choices' in result and len(result['choices']) > 0:
+                ai_response = result['choices'][0]['message']['content']
+                return f"🤖 **GitHub Copilot助手：**\n\n{ai_response}"
+            else:
+                return "❌ **响应格式错误**：API返回数据格式不正确"
+                
+        elif response.status_code == 401:
+            return "❌ **认证失败**：GitHub API密钥无效或已过期。请检查您的API密钥是否正确。"
+            
+        elif response.status_code == 403:
+            return "❌ **权限不足**：API密钥没有访问GitHub Models的权限。请检查您的订阅状态。"
+            
+        elif response.status_code == 429:
+            return "⏰ **请求限制**：请求过于频繁，请稍后再试。"
+            
+        elif response.status_code == 400:
+            try:
+                error_detail = response.json()
+                return f"❌ **请求错误**：{error_detail.get('error', {}).get('message', '请求格式不正确')}"
+            except:
+                return f"❌ **请求错误**：{response.text[:200]}"
+                
+        elif response.status_code == 500:
+            return "❌ **服务器错误**：GitHub Models服务暂时不可用，请稍后重试。"
+            
+        else:
+            return f"❌ **未知错误**：状态码 {response.status_code}\n错误信息：{response.text[:300]}"
+
+    except requests.exceptions.Timeout:
+        return "⏰ **请求超时**：网络连接超时，请检查网络连接后重试。"
+        
+    except requests.exceptions.ConnectionError:
+        return "🔌 **连接错误**：无法连接到GitHub Models API，请检查网络连接。"
+        
+    except requests.exceptions.RequestException as e:
+        return f"❌ **网络错误**：{str(e)[:200]}"
+        
+    except Exception as e:
+        return f"❌ **未知错误**：{str(e)[:200]}"
+
+def test_github_api_connection(api_key):
+    """测试GitHub API连接"""
+    if not api_key.strip():
+        return False, "API密钥为空"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    # 使用简单的测试请求
+    test_payload = {
+        "messages": [{"role": "user", "content": "Hello"}],
+        "model": "gpt-4o-mini",
+        "max_tokens": 10
+    }
+    
+    try:
+        response = requests.post(
+            "https://models.inference.ai.azure.com/chat/completions",
+            headers=headers,
+            json=test_payload,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            return True, "连接成功"
+        elif response.status_code == 401:
+            return False, "API密钥无效"
+        elif response.status_code == 403:
+            return False, "权限不足"
+        else:
+            return False, f"连接失败：{response.status_code}"
+            
+    except Exception as e:
+        return False, f"连接测试失败：{str(e)[:100]}"
+
+def render_chat_interface():
+    """渲染聊天界面 - 修正版本"""
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("🤖 GitHub Copilot助手", expanded=False):
+            # API密钥输入和测试
+            st.write("**🔑 GitHub API配置：**")
+            api_key_input = st.text_input(
+                "GitHub Models API密钥",
+                value=st.session_state.get('github_api_key', ''),
+                type="password",
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx",
+                help="请输入您的GitHub Models API密钥"
+            )
+
+            if api_key_input != st.session_state.get('github_api_key', ''):
+                st.session_state.github_api_key = api_key_input
+
+            # API连接测试按钮
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔍 测试连接", use_container_width=True):
+                    if st.session_state.get('github_api_key'):
+                        with st.spinner("测试中..."):
+                            success, message = test_github_api_connection(st.session_state.github_api_key)
+                            if success:
+                                st.success(f"✅ {message}")
+                            else:
+                                st.error(f"❌ {message}")
+                    else:
+                        st.error("请先输入API密钥")
+
+            with col2:
+                # API状态显示
+                if st.session_state.get('github_api_key'):
+                    st.success("✅ 密钥已输入")
+                else:
+                    st.warning("⚠️ 请输入密钥")
+
+            # 使用说明
+            with st.expander("📖 API密钥获取说明"):
+                st.markdown("""
+                **获取GitHub Models API密钥：**
+                
+                1. 访问 [GitHub Settings](https://github.com/settings/tokens)
+                2. 点击 "Generate new token" → "Generate new token (classic)"
+                3. 选择权限范围，至少需要 `repo` 权限
+                4. 生成并复制token（格式：ghp_xxxxxx）
+                5. 确保您的账户有GitHub Models访问权限
+                
+                **注意：** API密钥只在当前会话有效，请妥善保管。
+                """)
+
+            # 快速问题按钮
+            st.write("**💡 快速咨询：**")
+            suggestions = get_smart_suggestions()
+
+            for suggestion in suggestions[:3]:
+                if st.button(suggestion, key=f"suggest_{hash(suggestion)}", use_container_width=True):
+                    if st.session_state.get('github_api_key'):
+                        process_chat_message(suggestion)
+                    else:
+                        st.error("请先输入并测试GitHub API密钥")
+
+            # 自定义输入
+            st.write("**💬 自定义问题：**")
+            user_input = st.text_area(
+                "",
+                placeholder="输入您的问题...\n例如：优化失败怎么办？",
+                height=80,
+                key="chat_input"
+            )
+
+            if st.button("📤 发送", key="send_chat", use_container_width=True, type="primary"):
+                if not st.session_state.get('github_api_key'):
+                    st.error("请先输入GitHub API密钥")
+                elif user_input.strip():
+                    process_chat_message(user_input.strip())
+                else:
+                    st.warning("请输入问题内容")
+
+            # 对话历史
+            if st.session_state.get('chat_messages'):
+                st.write("**📝 最近对话：**")
+                recent_messages = st.session_state.chat_messages[-4:]
+                for msg in recent_messages:
+                    if msg['role'] == 'user':
+                        st.markdown(f"**🙋 您：** {msg['content'][:50]}...")
+                    else:
+                        # 只显示回复的前50个字符
+                        content_preview = msg['content'].replace('🤖 **GitHub Copilot助手：**\n\n', '')[:50]
+                        st.markdown(f"**🤖 助手：** {content_preview}...")
+
+                if st.button("🗑️ 清空对话", key="clear_chat"):
+                    st.session_state.chat_messages = []
+                    st.rerun()
+
+
+def process_chat_message(user_message):
+    """处理聊天消息 - 修正版本"""
+    # 检查API密钥
+    if not st.session_state.get('github_api_key', '').strip():
+        st.error("请先在侧边栏输入您的GitHub API密钥")
+        return
+
+    # 添加用户消息
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = []
+        
+    st.session_state.chat_messages.append({
+        'role': 'user',
+        'content': user_message,
+        'timestamp': time.time()
+    })
+
+    # 获取响应
+    with st.spinner('🤖 GitHub Copilot思考中...'):
+        system_prompt = get_system_prompt()
+        
+        # 使用修正后的API调用
+        ai_response = call_github_models_api(
+            user_message, 
+            system_prompt, 
+            st.session_state.github_api_key
+        )
+
+        # 如果GitHub API调用失败，使用本地智能响应作为备用
+        if "❌" in ai_response:
+            ai_response += f"\n\n---\n\n**💡 本地建议：**\n\n{get_contextual_response(user_message)}"
+
+    # 添加AI响应
+    st.session_state.chat_messages.append({
+        'role': 'assistant',
+        'content': ai_response,
+        'timestamp': time.time()
+    })
+
+    # 显示最新回复
+    st.success("✅ 回复已生成！")
+
+    # 自动展开聊天框显示结果
+    with st.expander("💬 最新回复", expanded=True):
+        st.markdown(ai_response)
+
+
 
 def main():
     initialize_session_state()
